@@ -1,7 +1,8 @@
-package service
+package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,10 @@ import (
 	"test/internal/app/handler"
 	"test/internal/domain/service"
 	"test/internal/infrastructure/persistence/postgres/pg_repository"
+
+	"github.com/go-chi/chi/v5"
+	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func main() {
@@ -37,7 +42,18 @@ func main() {
 	prHandler := handler.NewPrHandler(prService)
 
 	apiHandler := handler.NewAPIHandler(teamHandler, userHandler, prHandler)
-	server := api.Handler(apiHandler)
+	r := chi.NewRouter()
+	api.HandlerFromMux(apiHandler, r)
+	r.Get("/swagger/doc.json", func(w http.ResponseWriter, r *http.Request) {
+		swagger, err := api.GetSwagger()
+		if err != nil {
+			http.Error(w, "Failed to load swagger spec: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(swagger)
+	})
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	hostname := os.Getenv("HOSTNAME")
 	if hostname == "" {
@@ -50,7 +66,7 @@ func main() {
 
 	log.Println("server running on :" + port)
 	hostWithPort := fmt.Sprintf("%s:%s", hostname, port)
-	err = http.ListenAndServe(hostWithPort, server)
+	err = http.ListenAndServe(hostWithPort, r)
 	if err != nil {
 		log.Fatalf("server error: %v", err)
 	}
